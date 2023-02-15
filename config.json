@@ -1,0 +1,18 @@
+{
+    "test_element" : {
+        "name" : "Rhodennbox 1",        
+        "test_element_id" : 2,
+        "test_type" : 1
+    },
+    "database" : {
+        "host" : "192.168.56.101",
+        "port" : 5433,
+        "username" : "dataentry",
+        "password" : "dataentry",
+    "database" : "sention-systems"
+    },
+    "device" : {
+        "type" : "epoch_650",
+        "port" : "/dev/ttyACM0"
+    }
+}
