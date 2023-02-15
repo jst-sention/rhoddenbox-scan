@@ -4,10 +4,12 @@ import json
 import time
 import os
 
+import zipfile
 
-UUT_SELECT_STATEMENT="SELECT uut_id,uut_type_id FROM data.tbl_uut uut LEFT JOIN data.tbl_uut_type ut ON ut.id=uut.uut_type_id WHERE uut.sention_tag=%s;"
+
+UUT_SELECT_STATEMENT="SELECT ut.id,uut_type_id FROM data.tbl_uut uut LEFT JOIN data.tbl_uut_type ut ON ut.id=uut.uut_type_id WHERE uut.sention_tag=%s;"
 SCAN_DEFAULT_SETTING_SELECT_STATEMENT="""
-    SELECT scan_setup,scan_info
+    SELECT scan_setup,scan_info,id
     FROM data.tbl_scan_setup
     WHERE id=(SELECT default_scan_setup_id FROM data.tbl_default_scan_settings WHERE test_element_id=%s AND uut_type_id=%s);"""
 TEST_SCAN_SETTING_SELECT_STATEMENT="""
@@ -15,6 +17,9 @@ TEST_SCAN_SETTING_SELECT_STATEMENT="""
     FROM data.tbl_test_setup ts LEFT JOIN data.tbl_scan_setup ss ON ss.id=ts.scan_setup_id 
     WHERE test_element_id=%s AND uut_id=%s AND active='T' ORDER BY id DESC LIMIT 1;"""
 TEST_SETUP_INSERT_STATEMENT="INSERT INTO data.tbl_test_setup (uut_id,test_element_id,scan_setup_id) VALUES (%s,%s,%s) RETURNING id;"
+TEST_INFO_INSERT_STATEMENT="""
+    INSERT INTO data.tbl_test_info (test_id,test_start_time,test_end_time,test_type_id,uut_id,test_info,test_data)
+    VALUES (%s,to_timestamp(%s),now(),%s,%s,%s,%s);"""
 
 
 def fetchScanInfo(uutSerial : str, config : json) -> json:
@@ -28,22 +33,57 @@ def fetchScanInfo(uutSerial : str, config : json) -> json:
     )) as conn:
         with conn.cursor() as curr:
             
-            curr.execute(UUT_SELECT_STATEMENT, uutSerial)
+            curr.execute(UUT_SELECT_STATEMENT,[uutSerial])
             res = curr.fetchone()
 
             if res is not None:
                 uut_id = res[0]
                 uut_type_id = res[1]
 
-                curr.execute(TEST_SCAN_SETTING_SELECT_STATEMENT, [config['test_element']['id'],uut_id])
+                result['uut_id'] = uut_id
+
+                curr.execute(TEST_SCAN_SETTING_SELECT_STATEMENT,[config['test_element']['id'],uut_id])
 
                 res = curr.fetchone()
 
                 if res is None:
-                    res = curr.execute(SCAN_DEFAULT_SETTING_SELECT_STATEMENT,[config['test_element']['id'],uut_type_id])
-                    curr.execute(query)
+                    curr.execute(SCAN_DEFAULT_SETTING_SELECT_STATEMENT,[config['test_element']['id'],uut_type_id])
 
-        return res[0]
+                    res = curr.fetchone()
+
+                    if res is None:
+                        return None
+
+                    else: 
+                        result['scan_setup_id'] = res[2]
+                else:
+                    result['test_id'] = res[2]
+
+                result['scan_setup'] = res[0]
+                result['scan_info'] = res[1]
+
+        return result
+
+
+def endTest(uutSerial : str, config : json, scanConfig : json, dataPackage : bytes, testStart : int):
+
+    with psycopg.connect("dbname=sention-systems host={0} port={1} user={2} password={3}".format(
+        config['database']['host'],
+        config['database']['port'],
+        config['database']['username'],
+        config['database']['password']
+    )) as conn:
+        with conn.cursor() as curr:
+            if not 'test_id' in scanConfig:
+                curr.execute(TEST_SETUP_INSERT_STATEMENT,[scanConfig['uut_id'],config['test_element']['id'],scanConfig['scan_setup_id']])
+                res.fetchone()
+                scanConfig['test_id'] = res[0]
+
+            test_info = {}
+            test_info['scan_setup'] = scanConfig['scan_setup']
+            test_info['scan_info'] = scanConfig['scan_info']
+
+            curr.execute(TEST_INFO_INSERT_STATEMENT, scanConfig['test_id'],testStart, config['test_element']['test_type'], scanConfig['uut_id'],test_info,dataPackage)
 
 
 with open('config.json') as configFile:
@@ -55,13 +95,33 @@ print(scanner.serialNumber)
 uutSerial = input('Serial Number : ')
 scanConfig = fetchScanInfo(uutSerial, config)
 
-outdir = '/tmp/' + str(time.time_ns() // 1000000)
+if scanConfig is None:
+    exit(1)
+
+scanner.writeSettings(scanConfig['scan_setup']['epoch_650'])
+
+testStart = time.time_ns() // 1000000
+outdir = f'/tmp/{testStart}'
 
 os.mkdir(outdir)
+filelist = []
 
-for row in range(scanConfig['rhoddenbox_1_0']['scan']['row_count']):
-    for col in range(scanConfig['rhoddenbox_1_0']['scan']['column_count']):
+scanned = True
+
+
+
+for row in range(scanConfig['scan_info']['row_count']):
+    for col in range(scanConfig['scan_info']['column_count']):
         input(f'Y:{row} X:{col}')
-        scanner.scanWav(f'{outdir}/l{row}_{col}.wav', scanConfig['rhoddenbox_1_0']['epoch_6xx']['Range'])
+        if (scanner.scanWav((filename := f'{outdir}/l{row}_{col}.wav'), scanConfig['scan_setup']['epoch_650']['Range'])):
+            filelist.extend(filename)
+        else:
+            scanned = False
 
 scanner.close()
+
+with zipfile.ZipFile((filename := outdir.rsplit('/', 1)[1] + '.zip'),"w",compression=zipfile.ZIP_DEFLATED) as newZipFile:
+    for f in filelist:
+        newZipFile.write(f)
+
+endTest(uutSerial, config, scanConfig, dataPackage, testStart)

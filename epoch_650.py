@@ -2,16 +2,17 @@ import serial
 from io import StringIO
 import numpy as np
 from scipy.io import wavfile
+import json
 
 
 class Epoch_650:
 
     def __init__(self, portname : str):
         self._data = []
-        self.device = serial.Serial(portname, 115200, timeout=5000)
+        self.device = serial.Serial(portname, 115200, timeout=5)
 
         try:
-            while self.device.readline():
+            while len(self.device.readline()) > 0:
                 pass
         except:
             pass
@@ -23,6 +24,16 @@ class Epoch_650:
         self.device.readline()
 
 
+    def writeSettings(self, settings : json):
+
+        for key in settings:
+            print(f'param_{key}={settings[key]}')
+            self.device.write(bytes(f'param_{key}={settings[key]}\r\n','utf-8'))
+
+            # Read out the OK
+            self.device.readline()
+
+
     def addScan(self, filename='/tmp/scanData.csv'):
         self.device.write(b'param_RawData=0,120\r\n')
         with open(filename,'wb') as dataFile:
@@ -32,7 +43,7 @@ class Epoch_650:
         self.device.readline()
 
 
-    def scanWav(self, filename, sampleWindow):
+    def scanWav(self, filename, sampleWindow) -> bool:
         self.device.write(bytes(f'param_RawData=0,{sampleWindow}\r\n','utf-8'))
         npData = np.loadtxt(StringIO(self.device.readline()[:-2].decode('utf-8')), delimiter=',') - 256
 

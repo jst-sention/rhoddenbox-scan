@@ -1,8 +1,8 @@
 {
     "test_element" : {
         "name" : "Rhodennbox 1",        
-        "test_element_id" : 2,
-        "test_type" : 1
+        "id" : 2,
+        "test_type" : 3
     },
     "database" : {
         "host" : "192.168.56.101",
