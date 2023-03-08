@@ -56,6 +56,8 @@ class Epoch_650:
         # Read out the OK
         self.device.readline()
 
+        return True
+
 
     def close(self):
         self.device.close()

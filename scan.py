@@ -3,6 +3,7 @@ from epoch_650 import Epoch_650
 import json
 import time
 import os
+import requests
 
 import zipfile
 
@@ -18,8 +19,8 @@ TEST_SCAN_SETTING_SELECT_STATEMENT="""
     WHERE test_element_id=%s AND uut_id=%s AND active='T' ORDER BY id DESC LIMIT 1;"""
 TEST_SETUP_INSERT_STATEMENT="INSERT INTO data.tbl_test_setup (uut_id,test_element_id,scan_setup_id) VALUES (%s,%s,%s) RETURNING id;"
 TEST_INFO_INSERT_STATEMENT="""
-    INSERT INTO data.tbl_test_info (test_id,test_start_time,test_end_time,test_type_id,uut_id,test_info,test_data)
-    VALUES (%s,to_timestamp(%s),now(),%s,%s,%s,%s);"""
+    INSERT INTO data.tbl_test_info (id,test_start_time,test_end_time,test_type_id,uut_id,test_info)
+    VALUES (%s,to_timestamp(%s),now(),%s,%s,%s);"""
 
 
 def fetchScanInfo(uutSerial : str, config : json) -> json:
@@ -65,25 +66,39 @@ def fetchScanInfo(uutSerial : str, config : json) -> json:
         return result
 
 
-def endTest(uutSerial : str, config : json, scanConfig : json, dataPackage : bytes, testStart : int):
+def endTest(uutSerial : str, config : json, scanConfig : json, dataPackageFilename : str, testStart : int):
 
-    with psycopg.connect("dbname=sention-systems host={0} port={1} user={2} password={3}".format(
-        config['database']['host'],
-        config['database']['port'],
-        config['database']['username'],
-        config['database']['password']
-    )) as conn:
-        with conn.cursor() as curr:
-            if not 'test_id' in scanConfig:
-                curr.execute(TEST_SETUP_INSERT_STATEMENT,[scanConfig['uut_id'],config['test_element']['id'],scanConfig['scan_setup_id']])
-                res.fetchone()
-                scanConfig['test_id'] = res[0]
+    try:
+        with psycopg.connect("dbname=sention-systems host={0} port={1} user={2} password={3}".format(
+            config['database']['host'],
+            config['database']['port'],
+            config['database']['username'],
+            config['database']['password']
+        )) as conn:
+            with conn.cursor() as curr:
+                if not 'test_id' in scanConfig:
+                    curr.execute(TEST_SETUP_INSERT_STATEMENT,[scanConfig['uut_id'],config['test_element']['id'],scanConfig['scan_setup_id']])
+                    res = curr.fetchone()
+                    scanConfig['test_id'] = res[0]
 
-            test_info = {}
-            test_info['scan_setup'] = scanConfig['scan_setup']
-            test_info['scan_info'] = scanConfig['scan_info']
+                test_info = {}
+                test_info['scan_setup'] = scanConfig['scan_setup']
+                test_info['scan_info'] = scanConfig['scan_info']
 
-            curr.execute(TEST_INFO_INSERT_STATEMENT, scanConfig['test_id'],testStart, config['test_element']['test_type'], scanConfig['uut_id'],test_info,dataPackage)
+                curr.execute(TEST_INFO_INSERT_STATEMENT,
+                                [scanConfig['test_id'],
+                                testStart,
+                                config['test_element']['test_type'],
+                                scanConfig['uut_id'],
+                                json.dumps(test_info)]
+                                )
+
+                # post data package to API
+                files = {'file': open(dataPackageFilename, 'rb')}
+                data = {'fileinfo':f'{{"test_id":{scanConfig["test_id"]}}}'}
+                getdata = requests.post(config['data_upload_url'], data=data, files=files)
+    except:
+        print('Did not end test (db upload)')
 
 
 with open('config.json') as configFile:
@@ -108,20 +123,22 @@ filelist = []
 
 scanned = True
 
-
-
 for row in range(scanConfig['scan_info']['row_count']):
     for col in range(scanConfig['scan_info']['column_count']):
         input(f'Y:{row} X:{col}')
         if (scanner.scanWav((filename := f'{outdir}/l{row}_{col}.wav'), scanConfig['scan_setup']['epoch_650']['Range'])):
-            filelist.extend(filename)
+            filelist += [filename]
         else:
             scanned = False
 
 scanner.close()
 
+if not scanned:
+    print('Scan not complete')
+    exit(1)
+
 with zipfile.ZipFile((filename := outdir.rsplit('/', 1)[1] + '.zip'),"w",compression=zipfile.ZIP_DEFLATED) as newZipFile:
     for f in filelist:
-        newZipFile.write(f)
+        newZipFile.write(f,os.path.basename(f))
 
-endTest(uutSerial, config, scanConfig, dataPackage, testStart)
+endTest(uutSerial, config, scanConfig, filename, testStart)

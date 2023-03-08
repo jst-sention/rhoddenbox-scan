@@ -14,5 +14,6 @@
     "device" : {
         "type" : "epoch_650",
         "port" : "/dev/ttyACM0"
-    }
+    },
+    "data_upload_url":"http://debug.sentioncloud.arpa/fileupload"
 }
