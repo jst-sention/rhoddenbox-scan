@@ -1,5 +1,6 @@
 import psycopg
 from epoch_650 import Epoch_650
+from ender5plus import Ender5Plus
 import json
 import time
 import os
@@ -103,6 +104,13 @@ def endTest(uutSerial : str, config : json, scanConfig : json, dataPackageFilena
 
 with open('config.json') as configFile:
     config = json.load(configFile)
+
+
+cnc = Ender5Plus(config['cnc']['port'])
+
+cnc.homeXYZ()
+
+exit(0)
 
 scanner = Epoch_650(config['device']['port'])
 print(scanner.serialNumber)

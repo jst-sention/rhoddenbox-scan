@@ -15,5 +15,15 @@
         "type" : "epoch_650",
         "port" : "/dev/ttyACM0"
     },
+    "cnc" : {
+        "name" : "Ender 5 Plus",
+        "port" : "/dev/ttyUSB0",
+        "baud" : 115200,
+        "head_z_pos" : 30,
+        "head_x_pos" : 310,
+        "head_y_pos" : 300,
+        "touch_ofs_x" : 29,
+        "touch_ofs_y" : 13
+    },
     "data_upload_url":"http://debug.sentioncloud.arpa/fileupload"
 }
